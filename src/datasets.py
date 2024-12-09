@@ -6,20 +6,8 @@ import torch
 from sklearn.preprocessing import LabelEncoder
 
 class SCINDataset(Dataset):
-    """
-    A class to load the SCIN dataset, including images, labels, and protected attributes.
-    """
 
     def __init__(self, root_dir, labels_csv, cases_csv, transform=None, protected_attr='combined_race'):
-        
-        """
-        Args:
-            root_dir (str): Path to the root directory of the dataset.
-            labels_csv (str): Name of the CSV file containing the labels.
-            cases_csv (str): Name of the CSV file containing the cases.
-            transform (callable, optional): A function/transform to apply to the images.
-            protected_attr (str): Column name to be used as the protected attribute.
-        """
         
         self.root_dir = root_dir
         self.labels_df = pd.read_csv(os.path.join(root_dir, labels_csv))
@@ -59,3 +47,51 @@ class SCINDataset(Dataset):
         protected_attr = torch.tensor(row['encoded_protected_attr'], dtype=torch.long)
 
         return image, label, protected_attr
+
+class HAM10000Dataset(Dataset):
+    
+    def __init__(self, root_dir, metadata_csv, transform=None, protected_attr='sex'):
+
+        self.root_dir = root_dir
+        self.metadata_path = os.path.join(root_dir, metadata_csv)
+        self.transform = transform
+        self.protected_attr_name = protected_attr
+        
+        self.metadata = pd.read_csv(self.metadata_path)
+        
+        self.metadata['image_path'] = self.metadata['image_id'].apply(self._get_image_path)
+        self.metadata = self.metadata[self.metadata['image_path'].notna()]
+
+        self.label_encoder = LabelEncoder()
+        self.metadata['encoded_label'] = self.label_encoder.fit_transform(self.metadata['dx'])
+
+        self.protected_label_encoder = LabelEncoder()
+        self.metadata['encoded_protected_attr'] = self.protected_label_encoder.fit_transform(
+            self.metadata[self.protected_attr_name].fillna('Unknown') 
+        )
+
+    def _get_image_path(self, image_id):
+
+        for folder in ["HAM10000_images_part_1", "HAM10000_images_part_2"]:
+            image_path = os.path.join(self.root_dir, folder, f"{image_id}.jpg")
+            if os.path.exists(image_path):
+                return image_path
+        return None 
+
+    def __len__(self):
+        return len(self.metadata)
+
+    def __getitem__(self, idx):
+        
+        row = self.metadata.iloc[idx]
+        image_path = row['image_path']
+        image = Image.open(image_path).convert("RGB")
+        
+        if self.transform:
+            image = self.transform(image)
+
+        label = torch.tensor(row['encoded_label'], dtype=torch.long)
+        protected_attr = torch.tensor(row['encoded_protected_attr'], dtype=torch.long)
+
+        return image, label, protected_attr
+
